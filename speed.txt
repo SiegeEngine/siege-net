@@ -1,0 +1,86 @@
+OUTBOUND UPDATES SCALE EXPONENTIALLY
+
+The biggest network message 'hog' is player motion, in particular, outbound broadcasts of player
+motion.
+
+N players all within view of each other sending M messages per second, the server has to turn those
+all around and send N*N*M messages back out.
+
+500 players that could all see each other and who send in 20 messages per second would require,
+naively, 500 * 500 * 20 = 5 million outbound packets per second. This is actually doable, but not
+without some tweaking (without tweaking, you'll get about 400,000 packets per second).
+
+CORKING FIXES THE EXPONENTIAL
+
+However, this "packet flood" can be greatly improved with corking:  If you allow some cork window
+(say 50ms) and don't send a player any messages until at least 50ms since the last message (so no
+delay if no messages recently, but if we just sent one we have to cork until 50ms later), you can
+cap one of these numbers and avoid the exponential. At 50ms cork, you have 20 packets per second
+per player.  So that gbives 500 * 20 * 20 = 200,000, which is totally doable.  The packets would
+now contain multiple move commands about multiple people, packed up together.
+
+There are other solutions as well, such as sending updates to multiple proxy servers, which send
+the individual packets out to the clients.
+
+PROCESSING IS PROBABLY THE REAL BOTTLENECK
+
+Worse is that you have to actually process this data.  5 million messages per second is very likely
+to overload the CPU.  This is a hotpath that needs to be optimized.
+
+EXAMPLES IN OTHER GAMES
+
+In 2013, Eve Online had a system with 4,000 pilots in it.  They slowed it down to
+10% of real-time in order for the server to keep up.
+   4000 * 4000 = 16,000,000 packets per movement-period.
+   Server tick is 1 second, so that was it.
+   10% of that is 1,600,000 packets per second, outbound.
+   That's just the packets. There was also processing to do.
+
+UDP PACKETS PER SECOND
+
+  https://blog.cloudflare.com/how-to-receive-a-million-packets/
+
+  Some say 50,000 per second per core.
+  Some say 700,000 per second, without NUMA.
+  Linux now has "sendmmsg" which allows you to send many packets at once.
+   (see also recvmmsg)
+  Naive approach, sendmmsg/recvmmsg, minimum packet sizes:
+    200,000 - 350,000 per second.
+  Pin the process to a core:
+    360,000 - 370,000 per second.
+  Send from multiple processes(threads)
+    IF you are using the same sender/receiver (IP adddresses), the same core will handle
+      it (network card hashes these to choose a queue).  But if they are scattered, you'll
+      get to use all your cores.
+    650,000 per second.
+  Receive from multiple processes(threads)
+    Will run into lock contention. Don't use multiple threads to receive from the same
+    descriptor.
+    See: SO_REUSEPORT flag. This allows multiple processes to bind to the same port.
+      Each has a separate descriptor.
+    1.1 million per second.
+
+  Summary:
+  * Receiving:
+    * recvmmsg (receive many at once)
+    * Ensure traffic is distributed evenly across many RX queues (check your network
+      queue hashing algorithm, e.g. ethtool -n enp5s0 rx-flow-hash udp4)
+    * Use SO_REUSEPORT and use multiple processes to receive.
+    * Be sure you have enough CPU power ready to go to pick up the packets from the
+      kernel, lest they drop.
+    * Stick to a single NUMA node.
+  * Sending:
+    * sendmmsg (send many at once)
+    * pin the sending process to a single core
+  * Don't use a VM, they are horrible at packet processing (60k vs 1M).
+  * Use a multiqueue NIC. Use fast CPU cores. Use parallel processes.
+
+  Tried Willy's sender, even more naive, on my machine got 0.489 Mpps.
+  -> That would handle 494 players within sight of each other, sending 2 msg / second.
+
+  https://youtu.be/3XG9-X777Jo
+  http://dpdk.org/
+  https://github.com/real-logic/Aeron/wiki
+  http://www.solarflare.com/OpenOnload-Middleware
+  https://github.com/accelio/accelio
+  Look into Chelsio (freebsd)
