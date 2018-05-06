@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::net::SocketAddr;
 use ring::rand::{SystemRandom, SecureRandom};
 use ring::agreement::{EphemeralPrivateKey, X25519, agree_ephemeral};
+use ring::signature::ED25519;
 use ring::error::Unspecified;
 use untrusted::Input;
 use timestamp::Timestamp;
@@ -338,6 +339,16 @@ impl Remote {
             },
             None => None
         }
+    }
+
+    pub fn validate_nonce_signature(&self, signature: &[u8], server_public_key: &[u8])
+                                    -> Result<()>
+    {
+        ::ring::signature::verify(&ED25519,
+                                  Input::from(server_public_key),
+                                  Input::from(&self.nonce),
+                                  Input::from(signature))
+            .map_err(|_| ErrorKind::RemoteFailedChallenge.into())
     }
 }
 
