@@ -37,8 +37,8 @@ pub fn validate_magic_and_version(
     bytes: &[u8]) -> Result<bool>
 {
     use bincode::deserialize;
-    assert!(correct_magic <= 0xFFFFF); // only 20 bits of space for MAGIC
-    assert!(current_version <= 0xFFF); // only 12 bits of space for VERSION
+    assert_eq!(correct_magic & 0xFFFFF000, correct_magic); // only 20 bits of space for MAGIC
+    assert_eq!(current_version & 0xFFF, current_version); // only 12 bits of space for VERSION
 
     if bytes.len() < 4 { return Err(ErrorKind::InvalidPacket.into()); }
     let magic_and_version: u32 = try!(deserialize(&bytes[0..4]));
