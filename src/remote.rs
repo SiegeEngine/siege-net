@@ -2,6 +2,7 @@
 use errors::*;
 use std::sync::Arc;
 use std::net::SocketAddr;
+use serde::{Serialize, Deserialize};
 use ring::rand::{SystemRandom, SecureRandom};
 use ring::agreement::{EphemeralPrivateKey, X25519, agree_ephemeral};
 use ring::signature::ED25519;
@@ -74,27 +75,30 @@ impl Remote {
         })
     }
 
-    pub fn serialize_packet(&mut self,
-                            packet: &Packet,
-                            magic: u32,
-                            version: u32) -> Result<Vec<u8>>
+    pub fn serialize_packet<P: Packet + Serialize>(
+        &mut self,
+        packet: &P,
+        magic: u32,
+        version: u32)
+        -> Result<Vec<u8>>
     {
         self._serialize_packet(packet, magic, version, None)
     }
 
-    pub fn serialize_reply_packet(&mut self,
-                                  packet: &Packet,
-                                  magic: u32,
-                                  version: u32,
-                                  in_reply_to: u32)
-                                  -> Result<Vec<u8>>
+    pub fn serialize_reply_packet<P: Packet + Serialize>(
+        &mut self,
+        packet: &P,
+        magic: u32,
+        version: u32,
+        in_reply_to: u32)
+        -> Result<Vec<u8>>
     {
         self._serialize_packet(packet, magic, version, Some(in_reply_to))
     }
 
-    fn _serialize_packet(
+    fn _serialize_packet<P: Packet + Serialize>(
         &mut self,
-        packet: &Packet,
+        packet: &P,
         magic: u32,
         version: u32,
         in_reply_to: Option<u32>)
@@ -107,13 +111,11 @@ impl Remote {
         // Build the header
         let seq = self.next_seq_number();
         let now = Timestamp::now();
-        match packet {
-            // Save timestamp for the following kinds of outbound packets
-            &Packet::Init(_) | &Packet::Heartbeat(_) => {
-                self.sent_pings[self.sent_ping_write_index] = (seq, now);
-                self.sent_ping_write_index = (self.sent_ping_write_index + 1) % 3;
-            },
-            _ => {},
+
+        if packet.reply_expected() {
+            // Save timestamp for packets we expect to get a reply to
+            self.sent_pings[self.sent_ping_write_index] = (seq, now);
+            self.sent_ping_write_index = (self.sent_ping_write_index + 1) % 3;
         }
 
         let header = Header::new(now, seq, in_reply_to, 1500);
@@ -173,12 +175,13 @@ impl Remote {
         Ok(bytes)
     }
 
-    // Returns the packet along with the sequence number from the header (for in-reply-to),
-    // and whether or not the packet is stale (out of order or potentially a duplicate).
-    pub fn deserialize_packet(
+    // Returns the packet bytes along with the sequence number from the header
+    // (for in-reply-to) and whether or not the packet is stale (out of order or
+    // potentially a duplicate).
+    pub fn deserialize_packet_header<'a, 'de, P: Packet + Deserialize<'de>>(
         &mut self,
-        bytes: &mut [u8])
-        -> Result<(Packet, u32, bool)>
+        bytes: &'a mut [u8])
+        -> Result<(&'a [u8], u32, bool)>
     {
         use ring::aead::{AES_128_GCM, OpeningKey, open_in_place};
         use bincode::{deserialize, serialized_size};
@@ -194,7 +197,7 @@ impl Remote {
 
         // Deserialize the packet body
         let offset = serialized_size(&header)? as usize;
-        let packet: Packet = deserialize(&slice[offset..])?;
+        let packet = &slice[offset..];
 
         let mut stale: bool = false;
 

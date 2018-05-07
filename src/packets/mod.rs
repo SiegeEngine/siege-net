@@ -25,30 +25,8 @@ pub const MAX_PROTO_PACKET: usize = 1500;
 
 use errors::*;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-#[repr(u8)]
-pub enum Packet {
-    Init(InitPacket),
-    InitAck(InitAckPacket),
-    UpgradeRequired(UpgradeRequiredPacket),
-    Heartbeat(HeartbeatPacket),
-    HeartbeatAck(HeartbeatAckPacket),
-    Shutdown(ShutdownPacket),
-    ShutdownComplete(ShutdownCompletePacket),
-}
-impl Packet {
-    pub fn name(&self) -> &'static str
-    {
-        match *self {
-            Packet::Init(_) => "Init",
-            Packet::InitAck(_) => "InitAck",
-            Packet::UpgradeRequired(_) => "UpgradeRequired",
-            Packet::Heartbeat(_) => "Heartbeat",
-            Packet::HeartbeatAck(_) => "HeartbeatAck",
-            Packet::Shutdown(_) => "Shutdown",
-            Packet::ShutdownComplete(_) => "ShutdownComplete",
-        }
-    }
+pub trait Packet {
+    fn reply_expected(&self) -> bool;
 }
 
 // Returns Ok(true) if correct version, Ok(false) if wrong version, Err(_) if

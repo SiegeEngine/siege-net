@@ -5,6 +5,7 @@
 
 #[macro_use]
 extern crate serde_derive;
+extern crate serde;
 extern crate bincode;
 extern crate ring;
 extern crate untrusted;

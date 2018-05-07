@@ -34,7 +34,12 @@ fn test() {
     use std::sync::Arc;
     use remote::Remote;
     use ring::rand::SystemRandom;
-    use super::Packet;
+
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+    #[repr(u8)]
+    enum Packet {
+        Init(InitPacket),
+    }
 
     let remote_addr: SocketAddr = FromStr::from_str("0.0.0.0:0").unwrap();
     let mut remote = Remote::new(remote_addr, Arc::new(SystemRandom::new())).unwrap();
@@ -47,7 +52,6 @@ fn test() {
     match packet2 {
         Packet::Init(init_packet2) => {
             assert_eq!(init_packet2, init_packet);
-        },
-        _ => panic!("Ser/De failed for InitPacket"),
+        }
     }
 }
